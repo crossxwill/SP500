@@ -1,0 +1,147 @@
+---
+title: "S&P 500: Great Depression vs. 2008 Financial Crisis"
+author: "William Chiu"
+date: "5/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Summary
+
+The stock market recovery from the Great Depression (of 1929) was very slow compared to the recovery from the Financial Crisis (of 2008). The document compares the daily performance of `$10,000` invested one month prior to the beginning of each recession.
+
+A portfolio of `$10,000` at the beginning of the Great Depression never recovers even after 8.6 years. In stark contrast, a portfolio of `$10,000` recovers approximately 4 years after the Financial Crisis.
+
+I thank the author of this [R tutorial](https://www.codingfinance.com/post/2018-03-27-download-price/). I also want to thank the author of this [other tutorial](https://blog.exploratory.io/introducing-time-series-analysis-with-dplyr-60683587cf8a). And  [this tutorial](https://stackoverflow.com/questions/23518605/add-an-index-numeric-id-column-to-large-data-frame/23518737). One of the best things about using R is the ease of copying and pasting other people's code.
+
+Advanced users may adjust the ticker symbol and initial investment dates in the chunk below and re-run the analysis.
+```{r}
+### document parameters
+
+ticker <- "^GSPC"
+
+GDstartdate <- '1929-07-01'
+FCstartdate <- '2007-11-01'
+```
+
+
+# Data
+
+Extract historical data for the S&P 500 from Yahoo Finance.
+
+```{r, message=FALSE}
+library(tidyverse)
+library(tidyquant)
+
+GSPC <- tq_get(ticker, from = '1927-01-01',
+           to = "2020-05-17",
+               get = "stock.prices")
+
+head(GSPC)
+```
+
+# Recession Dates
+
+According to the [NBER](https://www.nber.org/cycles.html) the Great Depression began on `August 1929` while the 2008 Financial Crisis began on `December 2007`. In order to simulate the performance of a portfolio that began immediately prior to the beginning of the recession, the document assumes `$10,000` was invested in the S&P 500 on the following dates:
+
+* 1929-07-01
+* 2007-11-01
+
+```{r}
+GSPC %>% 
+  filter(date >= GDstartdate) %>% 
+  head()
+
+GSPC %>% 
+  filter (date >= FCstartdate) %>% 
+  head()
+```
+
+# Splitting the Data
+
+Split the data sets between Great Depression and Financial Crisis. Then add new variable for portfolio age (i.e., the number of days since the initial `$10,000` investment.)
+
+```{r}
+GD <- GSPC %>% 
+  filter(date >= GDstartdate) %>% 
+  mutate(PortfolioAge = row_number() - 1)
+
+FC <- GSPC %>% 
+  filter (date >= FCstartdate) %>% 
+  mutate(PortfolioAge = row_number() - 1)
+
+head(GD)
+
+head(FC)
+```
+
+# Calculate the cumulative returns
+
+```{r}
+GD2 <- GD %>% 
+  mutate(CumReturn1929 = adjusted / first(adjusted)) %>% 
+  select(PortfolioAge, date, adjusted, CumReturn1929)
+
+FC2 <- FC %>% 
+  mutate(CumReturn2008 = adjusted / first(adjusted)) %>% 
+  select(PortfolioAge, date, adjusted, CumReturn2008)
+
+head(GD2)
+head(FC2)
+
+```
+
+# Merge the returns by Portfolio Age
+
+```{r}
+GD_FC <- GD2 %>% 
+  inner_join(FC2, by="PortfolioAge") %>% 
+  select(PortfolioAge, CumReturn1929, CumReturn2008)
+
+head(GD_FC)
+```
+
+We're almost done. We need to multiply the cumulative returns by `$10,000` to get the value of the portfolio in dollar terms.
+
+```{r}
+GD_FC2 <- GD_FC %>% 
+  mutate(GreatDepression1929 = CumReturn1929*10000,
+          FinancialCrisis2008 = CumReturn2008*10000)
+
+head(GD_FC2)
+```
+
+# Convert columns to rows
+
+This part is a little tricky. The columns `GreatDepression1929` and `FinancialCrisis2008` should be converted into rows with a new column (i.e., `Type`) to distinguish between the 1929 and 2008 portfolios. I perform this step to make plotting easier.
+
+```{r}
+GD_FC2_gather <- GD_FC2 %>% 
+  select(PortfolioAge, GreatDepression1929, FinancialCrisis2008) %>% 
+  gather("Type", "PortfolioValue", -PortfolioAge)
+
+head(GD_FC2_gather)
+
+tail(GD_FC2_gather)
+```
+
+# Plot
+
+```{r}
+ggplot(GD_FC2_gather, aes(x=PortfolioAge, y=PortfolioValue)) +
+  geom_line(aes(color=Type)) +
+  theme_classic() +
+  geom_hline(yintercept=10000, linetype="dashed", color = "black") +
+  scale_y_continuous(breaks=seq(0,25000,2500)) + 
+  scale_x_continuous(name="Portfolio Age (in days)",breaks=seq(0,365*9,365)) +
+  scale_color_manual(values=c('blue','orange')) +
+  ggtitle("Investing $10,000 in the S&P 500")
+
+```
+
+# Conclusion
+
+Had you invested `$10,000` on `1929-07-01`, your portfolio would have been worth about `$3,000` after 8.6 years. In stark contrast, if you invested `$10,000` on `2007-11-01`, your portfolio would have been worth about `$19,000` after 8.6 years.
